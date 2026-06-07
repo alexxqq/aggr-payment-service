@@ -39,7 +39,6 @@ class PublicPayRequest(BaseModel):
     chain: str | None = None              # select by chain+asset (backward compat)
     asset: str | None = None
     payer_address: str | None = None
-    speed_tier: str | None = None         # "fast" | "normal" | "slow" (sweep speed)
 
 
 class PublicPayResponse(BaseModel):
@@ -56,7 +55,6 @@ class PublicPayResponse(BaseModel):
     estimated_fee_native: str | None
     selected_option_id: str | None
     was_recommended_selected: bool
-    speed_tier: str | None = None  # Speed tier selected
     estimated_confirmation_readable: str | None = None  # ETA display
 
 
@@ -239,14 +237,6 @@ async def public_pay(
 
     intent.recipient_address = recipient_address
 
-    # Store speed_tier in metadata if provided
-    speed_tier = body.speed_tier or "normal"
-    if not intent.metadata_json:
-        intent.metadata_json = "{}"
-    metadata = json.loads(intent.metadata_json) if intent.metadata_json else {}
-    metadata["speed_tier"] = speed_tier
-    intent.metadata_json = json.dumps(metadata)
-
     await db.flush()
     await event_repo.create(
         payment_intent_id=intent.id,
@@ -268,8 +258,7 @@ async def public_pay(
         estimated_fee_native=selected.estimated_fee_native,
         selected_option_id=selected.option_id,
         was_recommended_selected=was_recommended,
-        speed_tier=speed_tier,
-        estimated_confirmation_readable=None,  # Frontend gets this from /speed-tiers/calculate
+        estimated_confirmation_readable=None,
     )
 
 
@@ -466,9 +455,8 @@ async def public_pay_session(
 
     intent.recipient_address = recipient_address
 
-    # Store session_id and speed_tier in intent metadata for later reference
-    speed_tier = body.speed_tier or "normal"
-    metadata = {"session_id": str(session_id), "speed_tier": speed_tier}
+    # Store session_id in intent metadata
+    metadata = {"session_id": str(session_id)}
     if session.metadata_json:
         metadata.update(json.loads(session.metadata_json))
     intent.metadata_json = json.dumps(metadata)
@@ -503,8 +491,7 @@ async def public_pay_session(
         estimated_fee_native=None,
         selected_option_id=f"{chain.lower()}:{asset.upper()}",
         was_recommended_selected=True,
-        speed_tier=speed_tier,
-        estimated_confirmation_readable=None,  # Frontend gets this from /speed-tiers/calculate
+        estimated_confirmation_readable=None,
     )
 
 
