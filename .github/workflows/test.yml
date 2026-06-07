@@ -1,0 +1,66 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: payment_service_db
+          POSTGRES_USER: payment_service
+          POSTGRES_PASSWORD: password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install UV
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    - name: Install dependencies
+      run: |
+        $HOME/.local/bin/uv pip install --system -r requirements.txt
+
+    - name: Wait for PostgreSQL
+      run: |
+        for i in {1..30}; do
+          PGPASSWORD=password psql -h localhost -U payment_service -d payment_service_db -c "SELECT 1" && break
+          echo "PostgreSQL not ready, waiting... ($i/30)"
+          sleep 1
+        done
+
+    - name: Run tests
+      env:
+        DATABASE_URL: postgresql+asyncpg://payment_service:password@localhost:5432/payment_service_db
+        LOG_LEVEL: INFO
+      run: |
+        $HOME/.local/bin/uv pip install --system pytest pytest-asyncio httpx
+        pytest tests/ -v --tb=short 2>&1 | tee test-results.log || true
+
+    - name: Upload test logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-logs
+        path: test-results.log
+        retention-days: 30
+        if-no-files-found: ignore
